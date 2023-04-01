@@ -27,7 +27,9 @@ bevy_input.workspace = true
 bevy_scene.workspace = true
 bevy_hierarchy.workspace = true
 
-bevy_rapier3d = { path = "../../../bevy_rapier/bevy_rapier3d", features = ["dim3"] }
+bevy_rapier3d = { path = "../../../bevy_rapier/bevy_rapier3d", features = [
+    "dim3",
+] }
 
 crossbeam.workspace = true
 

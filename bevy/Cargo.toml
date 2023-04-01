@@ -1,12 +1,5 @@
 [workspace]
-members = [
-  "android",
-  "input",
-  "ios",
-  "physics",
-  "render",
-  "stdin",
-]
+members = ["android", "input", "ios", "physics", "stdin"]
 
 [package]
 name = "bevy-edge"
@@ -25,16 +18,20 @@ crossbeam = "0.8.2"
 bevy_core = { path = "../../bevy/crates/bevy_core", default-features = false }
 bevy_input = { path = "../../bevy/crates/bevy_input", features = ["serialize"] }
 bevy_app = { path = "../../bevy/crates/bevy_app", default-features = false }
-bevy_asset = { path = "../../bevy/crates/bevy_asset", default-features = false, features = ["default"] }
+bevy_asset = { path = "../../bevy/crates/bevy_asset", default-features = false, features = [
+  "default",
+] }
 bevy_render = { path = "../../bevy/crates/bevy_render", default-features = false }
 bevy_window = { path = "../../bevy/crates/bevy_window", default-features = false }
 bevy_time = { path = "../../bevy/crates/bevy_time", default-features = false }
-bevy_winit = { path = "../../bevy/crates/bevy_winit", default-features = false, features = ["wayland"] }
+bevy_winit = { path = "../../bevy/crates/bevy_winit", default-features = false, features = [
+  "wayland",
+] }
 bevy_log = { path = "../../bevy/crates/bevy_log", default-features = false }
 bevy_ecs = { path = "../../bevy/crates/bevy_ecs", default-features = false }
 bevy_pbr = { path = "../../bevy/crates/bevy_pbr", default-features = false }
-bevy_transform = { path = "../../bevy/crates/bevy_transform", default-features = false  }
-bevy_sprite = { path = "../../bevy/crates/bevy_sprite", default-features = false  }
+bevy_transform = { path = "../../bevy/crates/bevy_transform", default-features = false }
+bevy_sprite = { path = "../../bevy/crates/bevy_sprite", default-features = false }
 bevy_ui = { path = "../../bevy/crates/bevy_ui", default-features = false }
 bevy_derive = { path = "../../bevy/crates/bevy_derive", default-features = false }
 bevy_math = { path = "../../bevy/crates/bevy_math", default-features = false }
