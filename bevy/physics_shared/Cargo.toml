@@ -1,0 +1,14 @@
+[package]
+name = "physics_shared"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy_time.workspace = true
+bevy_transform.workspace = true
+bevy_rapier3d = { path = "../../../bevy_rapier/bevy_rapier3d", features = [
+    "dim3",
+    "serde-serialize",
+] }
+
+serde = "*"

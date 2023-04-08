@@ -307,6 +307,7 @@ dependencies = [
  "bevy_tasks",
  "bevy_utils",
  "bytemuck",
+ "serde",
 ]
 
 [[package]]
@@ -555,6 +556,7 @@ dependencies = [
  "log",
  "nalgebra",
  "rapier3d",
+ "serde",
 ]
 
 [[package]]
@@ -723,6 +725,7 @@ dependencies = [
  "bevy_reflect",
  "bevy_utils",
  "crossbeam-channel",
+ "serde",
 ]
 
 [[package]]
@@ -734,6 +737,7 @@ dependencies = [
  "bevy_hierarchy",
  "bevy_math",
  "bevy_reflect",
+ "serde",
 ]
 
 [[package]]
@@ -786,6 +790,7 @@ dependencies = [
  "bevy_reflect",
  "bevy_utils",
  "raw-window-handle 0.5.0",
+ "serde",
 ]
 
 [[package]]
@@ -849,6 +854,9 @@ name = "bit-vec"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "349f9b6a179ed607305526ca489b34ad0a41aed5f7980fa90eb03160b69598fb"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "bitflags"
@@ -2131,6 +2139,7 @@ dependencies = [
  "num-complex",
  "num-rational",
  "num-traits",
+ "serde",
  "simba",
  "typenum",
 ]
@@ -2310,6 +2319,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02e0d21255c828d6f128a1e41534206671e8c3ea0c62f32291e808dc82cff17d"
 dependencies = [
  "num-traits",
+ "serde",
 ]
 
 [[package]]
@@ -2497,6 +2507,7 @@ dependencies = [
  "num-derive",
  "num-traits",
  "rustc-hash",
+ "serde",
  "simba",
  "slab",
  "smallvec",
@@ -2532,7 +2543,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "physics"
+name = "physics_client"
 version = "0.1.0"
 dependencies = [
  "bevy_app",
@@ -2556,8 +2567,32 @@ dependencies = [
  "bevy_utils",
  "bevy_window",
  "bevy_winit",
+ "bincode",
  "crossbeam",
  "log",
+ "physics_shared",
+]
+
+[[package]]
+name = "physics_server"
+version = "0.1.0"
+dependencies = [
+ "bevy_ecs",
+ "bevy_rapier3d",
+ "bevy_time",
+ "bevy_transform",
+ "bincode",
+ "physics_shared",
+]
+
+[[package]]
+name = "physics_shared"
+version = "0.1.0"
+dependencies = [
+ "bevy_rapier3d",
+ "bevy_time",
+ "bevy_transform",
+ "serde",
 ]
 
 [[package]]
@@ -2657,6 +2692,7 @@ dependencies = [
  "num-traits",
  "parry3d",
  "rustc-hash",
+ "serde",
  "simba",
 ]
 

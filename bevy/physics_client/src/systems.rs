@@ -1,7 +1,9 @@
+use std::io::{Read, Write};
+
 use bevy_ecs::{
     prelude::Entity,
     query::Without,
-    system::{Commands, Query, Res},
+    system::{Commands, Query, Res, ResMut},
 };
 use bevy_rapier3d::prelude::{
     systems::RigidBodyWritebackComponents, AdditionalMassProperties, Collider,
@@ -11,9 +13,9 @@ use bevy_rapier3d::prelude::{
 use bevy_time::Time;
 use bevy_transform::prelude::GlobalTransform;
 
-use crate::plugin::{
-    CreatedBody, CreatedCollider, Request, RequestSender, Response, ResponseReceiver,
-};
+use crate::plugin::PhysicsSocket;
+use bincode::{deserialize, serialize};
+use physics_shared::*;
 
 pub type RigidBodyComponents<'a> = (
     Entity,
@@ -35,8 +37,7 @@ pub type ColliderComponents<'a> = (
 pub fn init_rigid_bodies(
     mut commands: Commands,
     context: Res<RapierContext>,
-    sender: Res<RequestSender>,
-    receiver: Res<ResponseReceiver>,
+    mut socket: ResMut<PhysicsSocket>,
     rigid_bodies: Query<RigidBodyComponents, Without<RapierRigidBodyHandle>>,
 ) {
     let mut created_bodies = vec![];
@@ -57,11 +58,15 @@ pub fn init_rigid_bodies(
         });
     }
 
-    sender
+    socket
         .0
-        .send(Request::CreateBodies(created_bodies))
+        .write_all(&serialize(&Request::CreateBodies(created_bodies)).unwrap())
         .unwrap();
-    let resp = receiver.0.recv().unwrap();
+
+    let buf = &mut [0; 1024];
+    socket.0.read(buf).unwrap();
+
+    let resp = deserialize(buf).unwrap();
 
     if let Response::RigidBodyHandles(handles) = resp {
         for handle in handles {
@@ -75,8 +80,7 @@ pub fn init_rigid_bodies(
 pub fn init_colliders(
     mut commands: Commands,
     context: Res<RapierContext>,
-    sender: Res<RequestSender>,
-    receiver: Res<ResponseReceiver>,
+    mut socket: ResMut<PhysicsSocket>,
     colliders: Query<(ColliderComponents, Option<&GlobalTransform>), Without<RapierColliderHandle>>,
 ) {
     let mut created_colliders = vec![];
@@ -100,14 +104,17 @@ pub fn init_colliders(
         });
     }
 
-    sender
+    socket
         .0
-        .send(Request::CreateColliders(created_colliders))
+        .write_all(&serialize(&Request::CreateColliders(created_colliders)).unwrap())
         .unwrap();
 
-    let resp = receiver.0.recv().unwrap();
+    let buf = &mut [0; 1024];
+    socket.0.read(buf).unwrap();
 
-    if let Response::ColliderHandles(handles) = resp {
+    let resp = deserialize(buf);
+
+    if let Ok(Response::ColliderHandles(handles)) = resp {
         for handle in handles {
             commands
                 .entity(Entity::from_bits(handle.0))
@@ -120,8 +127,7 @@ pub fn writeback(
     context: Res<RapierContext>,
     config: Res<RapierConfiguration>,
     (time, sim_to_render_time): (Res<Time>, Res<SimulationToRenderTime>),
-    sender: Res<RequestSender>,
-    receiver: Res<ResponseReceiver>,
+    mut socket: ResMut<PhysicsSocket>,
     mut rigid_bodies: Query<(RigidBodyWritebackComponents, &RapierRigidBodyHandle)>,
 ) {
     let req = Request::SimulateStep(
@@ -132,9 +138,15 @@ pub fn writeback(
             diff: sim_to_render_time.diff,
         },
     );
-    sender.0.send(req).unwrap();
 
-    if let Ok(Response::SimulationResult(result)) = receiver.0.recv() {
+    socket.0.write_all(&serialize(&req).unwrap()).unwrap();
+
+    let buf = &mut [0; 1024];
+    socket.0.read(buf).unwrap();
+
+    let resp = deserialize(buf);
+
+    if let Ok(Response::SimulationResult(result)) = resp {
         for ((entity, parent, transform, mut interpolation, mut velocity, mut sleeping), handle) in
             rigid_bodies.iter_mut()
         {

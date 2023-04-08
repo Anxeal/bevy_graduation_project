@@ -1,5 +1,13 @@
 [workspace]
-members = ["android", "input", "ios", "physics", "stdin"]
+members = [
+  "android",
+  "input",
+  "ios",
+  "physics_shared",
+  "physics_server",
+  "physics_client",
+  "stdin",
+]
 
 [package]
 name = "bevy-edge"

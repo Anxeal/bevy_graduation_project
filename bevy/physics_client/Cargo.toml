@@ -1,5 +1,5 @@
 [package]
-name = "physics"
+name = "physics_client"
 version = "0.1.0"
 edition = "2021"
 
@@ -29,8 +29,12 @@ bevy_hierarchy.workspace = true
 
 bevy_rapier3d = { path = "../../../bevy_rapier/bevy_rapier3d", features = [
     "dim3",
+    "serde-serialize",
 ] }
 
 crossbeam.workspace = true
 
 log.workspace = true
+
+bincode = "*"
+physics_shared = { path = "../physics_shared" }
