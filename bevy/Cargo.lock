@@ -1751,6 +1751,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
+name = "human_bytes"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39b528196c838e8b3da8b665e08c30958a6f2ede91d79f2ffcd0d4664b9c64eb"
+
+[[package]]
 name = "humantime"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2569,6 +2575,7 @@ dependencies = [
  "bevy_winit",
  "bincode",
  "crossbeam",
+ "human_bytes",
  "log",
  "physics_shared",
 ]

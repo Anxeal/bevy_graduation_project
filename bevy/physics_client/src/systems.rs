@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use bevy_ecs::{
     prelude::Entity,
     query::Without,
-    system::{Commands, Query, Res, ResMut},
+    system::{Commands, Local, Query, Res, ResMut},
 };
 use bevy_rapier3d::prelude::{
     systems::RigidBodyWritebackComponents, AdditionalMassProperties, Collider,
@@ -15,6 +15,7 @@ use bevy_transform::prelude::GlobalTransform;
 
 use crate::plugin::PhysicsSocket;
 use bincode::{deserialize, serialize};
+use human_bytes::human_bytes;
 use physics_shared::*;
 
 pub type RigidBodyComponents<'a> = (
@@ -129,6 +130,7 @@ pub fn writeback(
     (time, sim_to_render_time): (Res<Time>, Res<SimulationToRenderTime>),
     mut socket: ResMut<PhysicsSocket>,
     mut rigid_bodies: Query<(RigidBodyWritebackComponents, &RapierRigidBodyHandle)>,
+    mut total_data: Local<usize>,
 ) {
     let req = Request::SimulateStep(
         config.gravity,
@@ -140,11 +142,21 @@ pub fn writeback(
     );
 
     socket.0.write_all(&serialize(&req).unwrap()).unwrap();
+    let mut data = vec![];
+    let mut buf = [0; 1024];
+    loop {
+        let n = socket.0.read(&mut buf).unwrap();
+        data.extend_from_slice(&buf[..n]);
+        if n < 1024 {
+            break;
+        }
+    }
 
-    let buf = &mut [0; 1024];
-    socket.0.read(buf).unwrap();
+    let resp = deserialize(&data);
+    log::debug!("Resp size: {}", human_bytes(data.len() as f64));
 
-    let resp = deserialize(buf);
+    *total_data += data.len();
+    log::debug!("Total data: {}", human_bytes(*total_data as f64));
 
     if let Ok(Response::SimulationResult(result)) = resp {
         for ((entity, parent, transform, mut interpolation, mut velocity, mut sleeping), handle) in

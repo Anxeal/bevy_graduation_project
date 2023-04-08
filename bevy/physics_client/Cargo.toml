@@ -38,3 +38,5 @@ log.workspace = true
 
 bincode = "*"
 physics_shared = { path = "../physics_shared" }
+
+human_bytes = "*"
