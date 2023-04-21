@@ -7,6 +7,9 @@ use bevy_ecs::{
 };
 use bevy_rapier3d::prelude::*;
 
+use tungstenite::{connect, stream::MaybeTlsStream, WebSocket};
+use url::Url;
+
 use crate::systems;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
@@ -16,7 +19,7 @@ enum PhysicsStage {
 }
 
 #[derive(Resource)]
-pub struct PhysicsSocket(pub std::net::TcpStream);
+pub struct PhysicsSocket(pub WebSocket<MaybeTlsStream<TcpStream>>);
 
 pub struct RapierPhysicsPlugin {
     addr: String,
@@ -94,8 +97,16 @@ impl Plugin for RapierPhysicsPlugin {
             SystemStage::parallel().with_system(systems::writeback), //with_run_criteria(FixedTimestep::steps_per_second(1.0))
         );
 
-        let connection = TcpStream::connect(format!("{}:{}", self.addr, self.port)).unwrap();
-        let socket = PhysicsSocket(connection);
-        app.insert_resource(socket);
+        let url = Url::parse(format!("ws://{}:{}/socket", self.addr, self.port).as_str()).unwrap();
+        println!("Connecting to {}", url);
+        let (socket, response) = connect(url).expect("Can't connect to physics server");
+
+        println!("Connected to the server");
+        println!("Response HTTP code: {}", response.status());
+        println!("Response contains the following headers:");
+        for (ref header, _value) in response.headers() {
+            println!("* {}", header);
+        }
+        app.insert_resource(PhysicsSocket(socket));
     }
 }

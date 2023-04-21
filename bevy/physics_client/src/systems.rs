@@ -1,9 +1,9 @@
-use std::io::{Read, Write};
+use std::time::Instant;
 
 use bevy_ecs::{
     prelude::Entity,
     query::Without,
-    system::{Commands, Local, Query, Res, ResMut},
+    system::{Commands, Query, Res, ResMut},
 };
 use bevy_rapier3d::prelude::{
     systems::RigidBodyWritebackComponents, AdditionalMassProperties, Collider,
@@ -17,6 +17,7 @@ use crate::plugin::PhysicsSocket;
 use bincode::{deserialize, serialize};
 use human_bytes::human_bytes;
 use physics_shared::*;
+use tungstenite::Message;
 
 pub type RigidBodyComponents<'a> = (
     Entity,
@@ -38,7 +39,7 @@ pub type ColliderComponents<'a> = (
 pub fn init_rigid_bodies(
     mut commands: Commands,
     context: Res<RapierContext>,
-    mut socket: ResMut<PhysicsSocket>,
+    socket: ResMut<PhysicsSocket>,
     rigid_bodies: Query<RigidBodyComponents, Without<RapierRigidBodyHandle>>,
 ) {
     let mut created_bodies = vec![];
@@ -59,17 +60,13 @@ pub fn init_rigid_bodies(
         });
     }
 
-    socket
-        .0
-        .write_all(&serialize(&Request::CreateBodies(created_bodies)).unwrap())
-        .unwrap();
+    if created_bodies.is_empty() {
+        return;
+    }
 
-    let buf = &mut [0; 1024];
-    socket.0.read(buf).unwrap();
+    let resp = send_request(socket, Request::CreateBodies(created_bodies));
 
-    let resp = deserialize(buf).unwrap();
-
-    if let Response::RigidBodyHandles(handles) = resp {
+    if let Ok(Response::RigidBodyHandles(handles)) = resp {
         for handle in handles {
             commands
                 .entity(Entity::from_bits(handle.0))
@@ -81,7 +78,7 @@ pub fn init_rigid_bodies(
 pub fn init_colliders(
     mut commands: Commands,
     context: Res<RapierContext>,
-    mut socket: ResMut<PhysicsSocket>,
+    socket: ResMut<PhysicsSocket>,
     colliders: Query<(ColliderComponents, Option<&GlobalTransform>), Without<RapierColliderHandle>>,
 ) {
     let mut created_colliders = vec![];
@@ -105,15 +102,11 @@ pub fn init_colliders(
         });
     }
 
-    socket
-        .0
-        .write_all(&serialize(&Request::CreateColliders(created_colliders)).unwrap())
-        .unwrap();
+    if created_colliders.is_empty() {
+        return;
+    }
 
-    let buf = &mut [0; 1024];
-    socket.0.read(buf).unwrap();
-
-    let resp = deserialize(buf);
+    let resp = send_request(socket, Request::CreateColliders(created_colliders));
 
     if let Ok(Response::ColliderHandles(handles)) = resp {
         for handle in handles {
@@ -128,9 +121,8 @@ pub fn writeback(
     context: Res<RapierContext>,
     config: Res<RapierConfiguration>,
     (time, sim_to_render_time): (Res<Time>, Res<SimulationToRenderTime>),
-    mut socket: ResMut<PhysicsSocket>,
+    socket: ResMut<PhysicsSocket>,
     mut rigid_bodies: Query<(RigidBodyWritebackComponents, &RapierRigidBodyHandle)>,
-    mut total_data: Local<usize>,
 ) {
     let req = Request::SimulateStep(
         config.gravity,
@@ -141,22 +133,7 @@ pub fn writeback(
         },
     );
 
-    socket.0.write_all(&serialize(&req).unwrap()).unwrap();
-    let mut data = vec![];
-    let mut buf = [0; 1024];
-    loop {
-        let n = socket.0.read(&mut buf).unwrap();
-        data.extend_from_slice(&buf[..n]);
-        if n < 1024 {
-            break;
-        }
-    }
-
-    let resp = deserialize(&data);
-    log::debug!("Resp size: {}", human_bytes(data.len() as f64));
-
-    *total_data += data.len();
-    log::debug!("Total data: {}", human_bytes(*total_data as f64));
+    let resp = send_request(socket, req);
 
     if let Ok(Response::SimulationResult(result)) = resp {
         for ((entity, parent, transform, mut interpolation, mut velocity, mut sleeping), handle) in
@@ -179,4 +156,25 @@ pub fn writeback(
             }
         }
     }
+}
+
+fn send_request(
+    mut socket: ResMut<PhysicsSocket>,
+    request: Request,
+) -> Result<Response, Box<dyn std::error::Error>> {
+    let msg = Message::Binary(serialize(&request)?);
+    let sent_size = msg.len();
+
+    let start = Instant::now();
+    socket.0.write_message(msg.clone())?;
+
+    let msg = socket.0.read_message()?;
+
+    println!(
+        "Sent {} and received {} in {:?}",
+        human_bytes(sent_size as f64),
+        human_bytes(msg.len() as f64),
+        start.elapsed()
+    );
+    Ok(deserialize::<Response>(&msg.into_data())?)
 }

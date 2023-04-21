@@ -41,3 +41,5 @@ physics_shared = { path = "../physics_shared" }
 
 human_bytes = "*"
 clap = { version = "*", features = ["cargo"] }
+tungstenite = { version = "*", features = ["rustls"] }
+url = "*"

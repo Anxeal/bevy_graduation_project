@@ -1,6 +1,9 @@
 use physics_shared::*;
+use tungstenite::handshake::server;
+use tungstenite::http::StatusCode;
+
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -8,11 +11,11 @@ use bevy_ecs::prelude::*;
 use bevy_rapier3d::rapier::prelude::*;
 use bevy_rapier3d::{prelude::*, utils};
 use bevy_transform::prelude::*;
-use rand::{thread_rng, Rng};
-use std::net::TcpListener;
 
 use bincode::{deserialize, serialize};
 use clap::{arg, command, value_parser};
+use rand::{thread_rng, Rng};
+use tungstenite::{accept_hdr, Message};
 
 #[derive(Debug, Clone, Copy)]
 enum SimulatedLatency {
@@ -67,29 +70,87 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => unreachable!(),
     };
 
-    let listener = TcpListener::bind("0.0.0.0:8080")?;
+    let port = matches.get_one::<u16>("port").unwrap();
+    let server = TcpListener::bind(format!("0.0.0.0:{}", port))?;
+    println!("Listening on port {}", port);
 
-    println!("Listening on port 8080");
-
-    // Handle multiple connections on a new thread
-
-    for stream in listener.incoming() {
-        let stream = stream?;
-        std::thread::spawn(move || {
-            if let Err(e) = handle_connection(stream, simulated_latency.clone()) {
-                eprintln!("Error: {}", e);
+    for stream in server.incoming() {
+        match stream {
+            Ok(stream) => {
+                std::thread::spawn(move || {
+                    if let Err(e) = handle_connection(stream, simulated_latency) {
+                        println!("Error: {}", e);
+                    }
+                });
             }
-        });
+            Err(e) => {
+                println!("Error: {}", e);
+            }
+        }
     }
 
     Ok(())
 }
 
 fn handle_connection(
-    mut stream: std::net::TcpStream,
+    stream: TcpStream,
     simulated_latency: SimulatedLatency,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut buffer = [0; 1024];
+    let peer_addr = stream.peer_addr()?;
+
+    let mut is_socket_path = false;
+
+    let websocket = accept_hdr(
+        stream.try_clone()?,
+        |req: &server::Request, mut response: server::Response| {
+            println!("Received a new ws handshake");
+            println!("The request's path is: {}", req.uri().path());
+            println!("The request's headers are:");
+            for (ref header, _value) in req.headers() {
+                println!("* {}", header);
+            }
+            is_socket_path = req.uri().path() == "/ws";
+            if is_socket_path {
+                *response.status_mut() = StatusCode::NOT_FOUND;
+            }
+
+            println!("Sending a handshake");
+            println!("The response's status is: {}", response.status());
+            println!("The response's headers are:");
+            for (ref header, _value) in response.headers() {
+                println!("* {}", header);
+            }
+
+            Ok(response)
+        },
+    );
+
+    if let Err(e) = websocket {
+        if let tungstenite::HandshakeError::Interrupted(_) = e {
+            println!("Connection closed by {}", peer_addr);
+            return Ok(());
+        }
+
+        if is_socket_path {
+            let response = server::Response::builder()
+                .status(StatusCode::FORBIDDEN)
+                .body("{\"error\": \"Access via websocket protocol\"}")
+                .unwrap();
+            server::write_response(stream, &response)?;
+            return Ok(());
+        }
+
+        let response = server::Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body("{\"error\": \"Not found\"}")
+            .unwrap();
+        server::write_response(stream, &response)?;
+        return Ok(());
+    }
+
+    let mut websocket = websocket.unwrap();
+
+    println!("Connection from {}", peer_addr);
 
     let mut context = RapierContext::default();
 
@@ -98,37 +159,37 @@ fn handle_connection(
     let physics_hooks = ();
 
     loop {
-        stream.read(&mut buffer)?;
+        println!("Waiting for message...");
+        let msg = websocket.read_message()?;
+        println!("Received message of length {:?}", msg.len());
+        if msg.is_binary() {
+            let req: Request = deserialize(&msg.into_data())?;
+            let response = match req {
+                Request::CreateBodies(bodies) => create_bodies(bodies, &mut context),
+                Request::CreateColliders(colliders) => create_colliders(colliders, &mut context),
+                Request::SimulateStep(gravity, timestep_mode, time, sim_to_render_time) => {
+                    simulate_step(
+                        &mut context,
+                        gravity,
+                        timestep_mode,
+                        physics_hooks,
+                        time,
+                        sim_to_render_time,
+                    )
+                }
+            };
 
-        if buffer.starts_with(b"GET") {
-            let response = b"HTTP/1.1 400 Bad Request
+            let bytes = serialize(&response)?;
 
-{\"error\": \"Cannot GET /. Please use the physics client instead.\"}";
-            stream.write(response)?;
+            simulate_latency(simulated_latency);
+
+            websocket.write_message(Message::binary(bytes))?;
+        } else if msg.is_close() {
+            println!("Closing connection with {}", peer_addr);
             return Ok(());
+        } else {
+            return Err(format!("Unexpected message: {:?}", msg).into());
         }
-
-        let Ok(req) = deserialize(&buffer) else { continue };
-        let response = match req {
-            Request::CreateBodies(bodies) => create_bodies(bodies, &mut context),
-            Request::CreateColliders(colliders) => create_colliders(colliders, &mut context),
-            Request::SimulateStep(gravity, timestep_mode, time, sim_to_render_time) => {
-                simulate_step(
-                    &mut context,
-                    gravity,
-                    timestep_mode,
-                    physics_hooks,
-                    time,
-                    sim_to_render_time,
-                )
-            }
-        };
-
-        let bytes = serialize(&response)?;
-
-        simulate_latency(simulated_latency);
-
-        stream.write(&bytes)?;
     }
 }
 
@@ -149,6 +210,7 @@ fn simulate_latency(simulated_latency: SimulatedLatency) {
 }
 
 fn create_bodies(bodies: Vec<CreatedBody>, context: &mut RapierContext) -> Response {
+    println!("Creating bodies");
     let mut rbs = vec![];
     for body in bodies {
         let mut builder = RigidBodyBuilder::new(body.body.into());
@@ -180,6 +242,7 @@ fn create_bodies(bodies: Vec<CreatedBody>, context: &mut RapierContext) -> Respo
 }
 
 fn create_colliders(colliders: Vec<CreatedCollider>, context: &mut RapierContext) -> Response {
+    println!("Creating colliders");
     let mut cols = vec![];
     for collider in colliders {
         let mut builder = ColliderBuilder::new(collider.shape.raw);
@@ -243,6 +306,7 @@ fn simulate_step(
     time: bevy_time::Time,
     mut sim_to_render_time: SimulationToRenderTime,
 ) -> Response {
+    println!("Simulating step");
     context.step_simulation(
         gravity,
         timestep_mode,
