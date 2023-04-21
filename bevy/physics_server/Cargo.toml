@@ -13,3 +13,6 @@ bevy_rapier3d = { path = "../../../bevy_rapier/bevy_rapier3d", features = [
 ] }
 physics_shared = { path = "../physics_shared" }
 bincode = "*"
+rand = "*"
+tungstenite = "*"
+clap = { version = "*", features = ["cargo"] }

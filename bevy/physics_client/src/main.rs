@@ -39,6 +39,8 @@ use bevy_winit::WinitPlugin;
 
 use bevy_utils::default;
 
+use clap::{arg, command, value_parser};
+
 mod plugin;
 mod systems;
 
@@ -66,6 +68,25 @@ fn main() {
         std::env::set_var("RUST_LOG", "physics=debug");
     }
 
+    let matches = command!()
+        .arg(
+            arg!(
+                -a --addr <ADDR> "The address to connect to"
+            )
+            .required(false)
+            .default_value("localhost")
+            .value_parser(value_parser!(String)),
+        )
+        .arg(
+            arg!(
+                -p --port <PORT> "The port to connect to"
+            )
+            .required(false)
+            .default_value("8080")
+            .value_parser(value_parser!(u16).range(1..=65535)),
+        )
+        .get_matches();
+
     let mut app = App::new();
 
     app.add_plugin(LogPlugin::default())
@@ -82,7 +103,17 @@ fn main() {
         .add_plugin(CorePipelinePlugin::default())
         .add_plugin(PbrPlugin::default());
 
-    app.add_plugin(plugin::RapierPhysicsPlugin);
+    let mut rapier_physics = plugin::RapierPhysicsPlugin::new();
+
+    if let Some(addr) = matches.get_one::<String>("addr") {
+        rapier_physics = rapier_physics.with_addr(addr.as_str());
+    }
+
+    if let Some(&port) = matches.get_one("port") {
+        rapier_physics = rapier_physics.with_port(port);
+    }
+
+    app.add_plugin(rapier_physics);
 
     app.add_startup_system(setup_resources.at_start())
         .add_startup_system(setup_graphics)

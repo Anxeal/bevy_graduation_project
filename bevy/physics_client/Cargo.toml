@@ -40,3 +40,4 @@ bincode = "*"
 physics_shared = { path = "../physics_shared" }
 
 human_bytes = "*"
+clap = { version = "*", features = ["cargo"] }

@@ -1,22 +1,94 @@
 use physics_shared::*;
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::thread::sleep;
+use std::time::Duration;
 
 use bevy_ecs::prelude::*;
 use bevy_rapier3d::rapier::prelude::*;
 use bevy_rapier3d::{prelude::*, utils};
 use bevy_transform::prelude::*;
+use rand::{thread_rng, Rng};
 use std::net::TcpListener;
 
 use bincode::{deserialize, serialize};
+use clap::{arg, command, value_parser};
+
+#[derive(Debug, Clone, Copy)]
+enum SimulatedLatency {
+    None,
+    Fixed(u64),
+    Random { min: u64, mean: u64 },
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let listener = TcpListener::bind("localhost:8080").unwrap();
+    let mut cmd = command!()
+        .arg(
+            arg!(
+                -p --port <PORT> "The port to listen on"
+            )
+            .required(false)
+            .default_value("8080")
+            .value_parser(value_parser!(u16).range(1..=65535)),
+        )
+        .arg(
+            arg!(
+                -l --latency <LATENCY> "The simulated latency in milliseconds, mean latency if min is specified"
+            )
+            .required(false)
+            .value_parser(value_parser!(u64)),
+        )
+        .arg(
+            arg!(
+                -m --min <MIN> "The minimum simulated latency in milliseconds"
+            )
+            .required(false)
+            .requires("latency")
+            .value_parser(value_parser!(u64)),
+        );
+
+    let matches = cmd.get_matches_mut();
+
+    let simulated_latency = match (
+        matches.get_one::<u64>("latency"),
+        matches.get_one::<u64>("min"),
+    ) {
+        (Some(&latency), None) => SimulatedLatency::Fixed(latency),
+        (Some(&latency), Some(&min)) => {
+            if min >= latency {
+                cmd.error(
+                    clap::ErrorKind::ValueValidation,
+                    "min must be less than latency",
+                );
+            }
+            SimulatedLatency::Random { min, mean: latency }
+        }
+        (None, None) => SimulatedLatency::None,
+        _ => unreachable!(),
+    };
+
+    let listener = TcpListener::bind("0.0.0.0:8080")?;
 
     println!("Listening on port 8080");
 
-    let (mut stream, _) = listener.accept().unwrap();
+    // Handle multiple connections on a new thread
 
+    for stream in listener.incoming() {
+        let stream = stream?;
+        std::thread::spawn(move || {
+            if let Err(e) = handle_connection(stream, simulated_latency.clone()) {
+                eprintln!("Error: {}", e);
+            }
+        });
+    }
+
+    Ok(())
+}
+
+fn handle_connection(
+    mut stream: std::net::TcpStream,
+    simulated_latency: SimulatedLatency,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut buffer = [0; 1024];
 
     let mut context = RapierContext::default();
@@ -27,6 +99,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         stream.read(&mut buffer)?;
+
+        if buffer.starts_with(b"GET") {
+            let response = b"HTTP/1.1 400 Bad Request
+
+{\"error\": \"Cannot GET /. Please use the physics client instead.\"}";
+            stream.write(response)?;
+            return Ok(());
+        }
+
         let Ok(req) = deserialize(&buffer) else { continue };
         let response = match req {
             Request::CreateBodies(bodies) => create_bodies(bodies, &mut context),
@@ -44,8 +125,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         let bytes = serialize(&response)?;
+
+        simulate_latency(simulated_latency);
+
         stream.write(&bytes)?;
     }
+}
+
+fn simulate_latency(simulated_latency: SimulatedLatency) {
+    let latency = match simulated_latency {
+        SimulatedLatency::None => return,
+        SimulatedLatency::Fixed(latency) => latency,
+        SimulatedLatency::Random { min, mean } => {
+            let mut rng = thread_rng();
+            let expovariate = -rng.gen::<f64>().ln() * (mean - min) as f64;
+            (min as f64 + expovariate) as u64
+        }
+    };
+
+    let latency = Duration::from_millis(latency);
+    println!("Simulated Latency: {:?}", latency);
+    sleep(latency);
 }
 
 fn create_bodies(bodies: Vec<CreatedBody>, context: &mut RapierContext) -> Response {

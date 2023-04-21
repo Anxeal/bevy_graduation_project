@@ -1,3 +1,5 @@
+use std::net::TcpStream;
+
 use bevy_app::{CoreStage, Plugin};
 use bevy_ecs::{
     schedule::{IntoSystemDescriptor, StageLabel, SystemSet, SystemStage},
@@ -16,7 +18,29 @@ enum PhysicsStage {
 #[derive(Resource)]
 pub struct PhysicsSocket(pub std::net::TcpStream);
 
-pub struct RapierPhysicsPlugin;
+pub struct RapierPhysicsPlugin {
+    addr: String,
+    port: u16,
+}
+
+impl RapierPhysicsPlugin {
+    pub fn new() -> Self {
+        Self {
+            addr: "localhost".to_string(),
+            port: 8080,
+        }
+    }
+
+    pub fn with_addr(mut self, addr: &str) -> Self {
+        self.addr = addr.to_string();
+        self
+    }
+
+    pub fn with_port(mut self, port: u16) -> Self {
+        self.port = port;
+        self
+    }
+}
 
 impl Plugin for RapierPhysicsPlugin {
     fn build(&self, app: &mut bevy_app::App) {
@@ -70,7 +94,8 @@ impl Plugin for RapierPhysicsPlugin {
             SystemStage::parallel().with_system(systems::writeback), //with_run_criteria(FixedTimestep::steps_per_second(1.0))
         );
 
-        let socket = PhysicsSocket(std::net::TcpStream::connect("localhost:8080").unwrap());
+        let connection = TcpStream::connect(format!("{}:{}", self.addr, self.port)).unwrap();
+        let socket = PhysicsSocket(connection);
         app.insert_resource(socket);
     }
 }
