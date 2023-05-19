@@ -1,0 +1,15 @@
+[package]
+name = "server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy.workspace = true
+bevy_rapier3d.workspace = true
+
+bincode.workspace = true
+rand.workspace = true
+tungstenite.workspace = true
+clap.workspace = true
+
+shared = { path = "../shared" }
