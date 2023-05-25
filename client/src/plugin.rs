@@ -1,10 +1,12 @@
+use std::sync::{Arc, Mutex};
+
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::*;
 
-use shared::Request;
+use shared::{Request, Response};
 use url::Url;
 
-use crate::{client::PhysicsClient, systems};
+use crate::{client::PhysicsClient, error::Result, systems};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
 enum PhysicsStage {
@@ -33,6 +35,20 @@ impl RapierPhysicsPlugin {
     pub fn with_port(mut self, port: u16) -> Self {
         self.port = port;
         self
+    }
+}
+
+#[derive(Resource)]
+pub struct PhysicsClientWrapper(pub Arc<Mutex<PhysicsClient>>);
+
+// Couldn't get futures working with Bevy
+// TODO: Implement this with futures instead of polling
+#[derive(Resource)]
+pub struct RequestResult(pub Arc<Mutex<Option<Result<Response>>>>);
+
+impl Default for RequestResult {
+    fn default() -> Self {
+        Self(Arc::new(Mutex::new(None)))
     }
 }
 
@@ -79,29 +95,33 @@ impl Plugin for RapierPhysicsPlugin {
             .insert_resource(RapierContext::default());
 
         app.insert_resource(RequestQueue::default());
+        app.insert_resource(RequestResult::default());
 
         // Custom initialization
 
         app.add_stage_after(
-            CoreStage::PostUpdate,
+            CoreStage::PreUpdate,
             PhysicsStage::SyncBackend,
             SystemStage::parallel().with_system_set(
                 SystemSet::new()
                     .with_system(systems::update_config)
                     .with_system(systems::init_rigid_bodies.after(systems::update_config))
                     .with_system(systems::init_colliders.after(systems::init_rigid_bodies))
-                    .with_system(systems::simulate_step.after(systems::init_colliders)),
+                    .with_system(systems::simulate_step.after(systems::init_colliders))
+                    .with_system(systems::process_requests.after(systems::simulate_step)),
             ),
         );
 
-        app.add_stage_after(
+        app.add_stage_before(
             PhysicsStage::SyncBackend,
             PhysicsStage::Writeback,
-            SystemStage::parallel().with_system(systems::process_requests), //with_run_criteria(FixedTimestep::steps_per_second(1.0))
+            SystemStage::parallel().with_system(systems::writeback), //with_run_criteria(FixedTimestep::steps_per_second(1.0))
         );
 
         let url = Url::parse(format!("ws://{}:{}/socket", self.addr, self.port).as_str()).unwrap();
-        app.insert_resource(PhysicsClient::new(url));
+        let client = PhysicsClient::new(url);
+        let wrapper = PhysicsClientWrapper(Arc::new(Mutex::new(client)));
+        app.insert_resource(wrapper);
     }
 }
 

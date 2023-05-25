@@ -1,11 +1,14 @@
+use std::thread;
+
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::*;
 
 use bevy_rapier3d::plugin::systems::RigidBodyWritebackComponents;
 
-use crate::client::PhysicsClient;
 use crate::error::Result;
-use crate::plugin::{RapierPhysicsPluginConfiguration, RequestQueue};
+use crate::plugin::{
+    PhysicsClientWrapper, RapierPhysicsPluginConfiguration, RequestQueue, RequestResult,
+};
 use shared::*;
 
 pub type RigidBodyComponents<'a> = (
@@ -47,7 +50,6 @@ fn handle_update_config_response(resp: Result<Response>) {
 
 pub fn init_rigid_bodies(
     context: Res<RapierContext>,
-    mut client: ResMut<PhysicsClient>,
     rigid_bodies: Query<RigidBodyComponents, Without<RapierRigidBodyHandle>>,
     mut request_queue: ResMut<RequestQueue>,
 ) {
@@ -86,7 +88,6 @@ fn handle_init_rigid_bodies_response(resp: Result<Response>, commands: &mut Comm
 
 pub fn init_colliders(
     context: Res<RapierContext>,
-    mut client: ResMut<PhysicsClient>,
     colliders: Query<(ColliderComponents, Option<&GlobalTransform>), Without<RapierColliderHandle>>,
     mut request_queue: ResMut<RequestQueue>,
 ) {
@@ -162,14 +163,32 @@ fn handle_simulate_step_response(
 
 pub fn process_requests(
     mut request_queue: ResMut<RequestQueue>,
-    mut client: ResMut<PhysicsClient>,
-    mut commands: Commands,
-    mut rigid_bodies: Query<(RigidBodyWritebackComponents, &RapierRigidBodyHandle)>,
+    client: Res<PhysicsClientWrapper>,
+    result: Res<RequestResult>,
 ) {
     let req = Request::BulkRequest(request_queue.0.drain(..).collect());
+    let client = client.0.clone();
+    let result = result.0.clone();
 
-    let resp = client.send_request(req);
+    thread::spawn(move || {
+        let resp = client.lock().unwrap().send_request(req);
+        result.lock().unwrap().replace(resp);
+    });
+}
 
+pub fn writeback(
+    mut commands: Commands,
+    mut rigid_bodies: Query<(RigidBodyWritebackComponents, &RapierRigidBodyHandle)>,
+    result: Res<RequestResult>,
+    mut init: Local<bool>,
+) {
+    if !*init {
+        *init = true;
+        return;
+    }
+
+    while result.0.lock().unwrap().is_none() {}
+    let resp = result.0.lock().unwrap().take().unwrap();
     if let Err(err) = resp {
         error!("Failed to send request: {}", err);
         return;

@@ -14,7 +14,6 @@ use human_bytes::human_bytes;
 
 use crate::error::Result;
 
-#[derive(Resource)]
 pub struct PhysicsClient {
     socket: WebSocket<MaybeTlsStream<TcpStream>>,
 }
