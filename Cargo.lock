@@ -471,6 +471,7 @@ dependencies = [
 name = "bevy_graduation_project"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "serde",
 ]
 
@@ -1120,6 +1121,7 @@ dependencies = [
  "bincode",
  "clap",
  "color_space",
+ "flate2",
  "human_bytes",
  "shared",
  "tracing",
@@ -3225,6 +3227,7 @@ dependencies = [
  "bevy_rapier3d",
  "bincode",
  "clap",
+ "flate2",
  "rand",
  "shared",
  "tungstenite",

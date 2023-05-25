@@ -1,7 +1,11 @@
-use std::net::TcpStream;
+use std::{
+    io::{Read, Write},
+    net::TcpStream,
+};
 
 use bevy::{prelude::*, utils::Instant};
 use bincode::{deserialize, serialize};
+use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
 use shared::*;
 use tungstenite::{connect, stream::MaybeTlsStream, Message, WebSocket};
 use url::Url;
@@ -31,29 +35,37 @@ impl PhysicsClient {
     }
 
     pub fn send_request(&mut self, request: Request) -> Result<Response> {
-        let msg = Message::Binary(serialize(&request)?);
+        let serialized = serialize(&request)?;
+
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&serialized)?;
+        let compressed = encoder.finish()?;
+
+        let msg = Message::Binary(compressed);
         let msg_len = msg.len();
 
-        trace!(
-            "Sending request ({}): {:?}",
-            human_bytes(msg_len as f64),
-            request
-        );
+        debug!("Sending request ({})", human_bytes(msg_len as f64));
+        trace!("Sending request: {:?}", request);
 
         let start = Instant::now();
         self.socket.write_message(msg.clone())?;
 
         let msg = self.socket.read_message()?;
         let msg_len = msg.len();
+        let msg_data = msg.into_data();
 
-        let response = deserialize::<Response>(&msg.into_data())?;
+        let mut decoder = ZlibDecoder::new(msg_data.as_slice());
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed)?;
 
-        trace!(
-            "Received response ({}) in {:?}: {:?}",
+        let response = deserialize::<Response>(decompressed.as_slice())?;
+
+        debug!(
+            "Received response ({}) in {:?}",
             human_bytes(msg_len as f64),
-            start.elapsed(),
-            response
+            start.elapsed()
         );
+        trace!("Received response: {:?}", response);
 
         Ok(response)
     }

@@ -3,12 +3,14 @@ use bevy_rapier3d::rapier::prelude::{ColliderBuilder, RigidBodyBuilder, RigidBod
 use bevy_rapier3d::{prelude::*, utils};
 
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use bincode::{deserialize, serialize};
 use clap::{arg, command, value_parser};
+use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
 use rand::{thread_rng, Rng};
 use tungstenite::{accept, Message};
 
@@ -113,7 +115,14 @@ fn handle_connection(
         let msg = websocket.read_message()?;
         println!("Received message of length {:?}", msg.len());
         if msg.is_binary() {
-            let req: Request = deserialize(&msg.into_data())?;
+            let msg_data = msg.into_data();
+
+            let mut decoder = ZlibDecoder::new(msg_data.as_slice());
+            let mut decompressed = Vec::new();
+            decoder.read_to_end(&mut decompressed)?;
+
+            let req: Request = deserialize(&decompressed)?;
+
             let response = handle_request(
                 req,
                 &mut context,
@@ -123,11 +132,15 @@ fn handle_connection(
                 physics_hooks,
             );
 
-            let bytes = serialize(&response)?;
-
             simulate_latency(simulated_latency);
 
-            websocket.write_message(Message::binary(bytes))?;
+            let serialized = serialize(&response)?;
+
+            let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(&serialized)?;
+            let compressed = encoder.finish()?;
+
+            websocket.write_message(Message::binary(compressed))?;
         } else if msg.is_close() {
             println!("Closing connection with {}", peer_addr);
             return Ok(());

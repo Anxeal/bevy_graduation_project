@@ -12,6 +12,7 @@ bincode.workspace = true
 human_bytes.workspace = true
 clap.workspace = true
 tungstenite.workspace = true
+flate2.workspace = true
 
 url = "*"
 color_space = "*"
