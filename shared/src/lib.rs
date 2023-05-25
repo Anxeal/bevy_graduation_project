@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 pub mod serializable;
 use serializable::*;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreatedBody {
     pub id: u64,
     pub body: RigidBody,
@@ -19,7 +19,7 @@ pub struct CreatedBody {
     pub additional_mass_properties: Option<SerializableAdditionalMassProperties>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreatedCollider {
     pub id: u64,
     pub shape: Collider,
@@ -30,8 +30,9 @@ pub struct CreatedCollider {
     pub restitution: Option<SerializableRestitution>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
+    BulkRequest(Vec<Request>),
     UpdateConfig(SerializableRapierConfiguration),
     CreateBodies(Vec<CreatedBody>),
     CreateColliders(Vec<CreatedCollider>),
@@ -41,6 +42,7 @@ pub enum Request {
 impl Request {
     pub fn name(&self) -> &'static str {
         match self {
+            Self::BulkRequest(_) => "BulkRequest",
             Self::UpdateConfig(_) => "UpdateConfig",
             Self::CreateBodies(_) => "CreateBodies",
             Self::CreateColliders(_) => "CreateColliders",
@@ -49,12 +51,25 @@ impl Request {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Response {
+    BulkResponse(Vec<Response>),
     ConfigUpdated,
     RigidBodyHandles(Vec<(u64, RigidBodyHandle)>),
     ColliderHandles(Vec<(u64, ColliderHandle)>),
     SimulationResult(HashMap<RigidBodyHandle, (Transform, Velocity)>),
+}
+
+impl Response {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::BulkResponse(_) => "BulkResponse",
+            Self::ConfigUpdated => "ConfigUpdated",
+            Self::RigidBodyHandles(_) => "RigidBodyHandles",
+            Self::ColliderHandles(_) => "ColliderHandles",
+            Self::SimulationResult(_) => "SimulationResult",
+        }
+    }
 }
 
 pub fn transform_to_iso(transform: &Transform, physics_scale: Real) -> Isometry<Real> {

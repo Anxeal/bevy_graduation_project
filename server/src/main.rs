@@ -114,23 +114,14 @@ fn handle_connection(
         println!("Received message of length {:?}", msg.len());
         if msg.is_binary() {
             let req: Request = deserialize(&msg.into_data())?;
-            let response = match req {
-                Request::UpdateConfig(new_config) => update_config(new_config.into(), &mut config),
-                Request::CreateBodies(bodies) => {
-                    create_bodies(bodies, &mut context, &mut entity2body)
-                }
-                Request::CreateColliders(colliders) => {
-                    create_colliders(colliders, &mut context, &entity2body)
-                }
-                Request::SimulateStep(delta_time) => simulate_step(
-                    &mut context,
-                    config.unwrap().gravity,
-                    config.unwrap().timestep_mode,
-                    physics_hooks,
-                    delta_time,
-                    &mut sim_to_render_time,
-                ),
-            };
+            let response = handle_request(
+                req,
+                &mut context,
+                &mut config,
+                &mut sim_to_render_time,
+                &mut entity2body,
+                physics_hooks,
+            );
 
             let bytes = serialize(&response)?;
 
@@ -143,6 +134,45 @@ fn handle_connection(
         } else {
             return Err(format!("Unexpected message: {:?}", msg).into());
         }
+    }
+}
+
+fn handle_request(
+    req: Request,
+    mut context: &mut RapierContext,
+    mut config: &mut Option<RapierConfiguration>,
+    mut sim_to_render_time: &mut SimulationToRenderTime,
+    mut entity2body: &mut HashMap<Entity, RigidBodyHandle>,
+    physics_hooks: (),
+) -> Response {
+    match req {
+        Request::BulkRequest(reqs) => {
+            let mut responses = vec![];
+            for req in reqs {
+                responses.push(handle_request(
+                    req,
+                    &mut context,
+                    &mut config,
+                    &mut sim_to_render_time,
+                    &mut entity2body,
+                    physics_hooks,
+                ));
+            }
+            Response::BulkResponse(responses)
+        }
+        Request::UpdateConfig(new_config) => update_config(new_config.into(), &mut config),
+        Request::CreateBodies(bodies) => create_bodies(bodies, &mut context, &mut entity2body),
+        Request::CreateColliders(colliders) => {
+            create_colliders(colliders, &mut context, &entity2body)
+        }
+        Request::SimulateStep(delta_time) => simulate_step(
+            &mut context,
+            config.unwrap().gravity,
+            config.unwrap().timestep_mode,
+            physics_hooks,
+            delta_time,
+            &mut sim_to_render_time,
+        ),
     }
 }
 

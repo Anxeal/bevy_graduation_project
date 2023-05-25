@@ -8,6 +8,8 @@ use clap::{arg, command, value_parser};
 
 use color_space::{Lch, ToRgb};
 
+mod client;
+mod error;
 mod plugin;
 mod systems;
 
@@ -32,7 +34,7 @@ struct SpawnHeight(f32);
 
 fn main() {
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "physics=debug");
+        std::env::set_var("RUST_LOG", "client=debug");
     }
 
     let matches = command!()

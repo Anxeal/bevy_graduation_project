@@ -1,15 +1,12 @@
-use std::time::Instant;
-
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::*;
 
 use bevy_rapier3d::plugin::systems::RigidBodyWritebackComponents;
 
-use crate::plugin::PhysicsSocket;
-use bincode::{deserialize, serialize};
-use human_bytes::human_bytes;
+use crate::client::PhysicsClient;
+use crate::error::Result;
+use crate::plugin::{RapierPhysicsPluginConfiguration, RequestQueue};
 use shared::*;
-use tungstenite::Message;
 
 pub type RigidBodyComponents<'a> = (
     Entity,
@@ -28,13 +25,17 @@ pub type ColliderComponents<'a> = (
     Option<&'a Restitution>,
 );
 
-pub fn update_config(socket: ResMut<PhysicsSocket>, config: Res<RapierConfiguration>) {
+pub fn update_config(config: Res<RapierConfiguration>, mut request_queue: ResMut<RequestQueue>) {
     if !config.is_changed() {
         return;
     }
 
-    let resp = send_request(socket, Request::UpdateConfig(config.clone().into()));
+    let req = Request::UpdateConfig(config.clone().into());
 
+    request_queue.0.push(req);
+}
+
+fn handle_update_config_response(resp: Result<Response>) {
     if let Err(err) = resp {
         error!("Failed to update config: {}", err);
     } else if let Ok(Response::ConfigUpdated) = resp {
@@ -45,10 +46,10 @@ pub fn update_config(socket: ResMut<PhysicsSocket>, config: Res<RapierConfigurat
 }
 
 pub fn init_rigid_bodies(
-    mut commands: Commands,
     context: Res<RapierContext>,
-    socket: ResMut<PhysicsSocket>,
+    mut client: ResMut<PhysicsClient>,
     rigid_bodies: Query<RigidBodyComponents, Without<RapierRigidBodyHandle>>,
+    mut request_queue: ResMut<RequestQueue>,
 ) {
     let mut created_bodies = vec![];
 
@@ -70,8 +71,10 @@ pub fn init_rigid_bodies(
         return;
     }
 
-    let resp = send_request(socket, Request::CreateBodies(created_bodies));
+    request_queue.0.push(Request::CreateBodies(created_bodies));
+}
 
+fn handle_init_rigid_bodies_response(resp: Result<Response>, commands: &mut Commands) {
     if let Ok(Response::RigidBodyHandles(handles)) = resp {
         for handle in handles {
             commands
@@ -82,10 +85,10 @@ pub fn init_rigid_bodies(
 }
 
 pub fn init_colliders(
-    mut commands: Commands,
     context: Res<RapierContext>,
-    socket: ResMut<PhysicsSocket>,
+    mut client: ResMut<PhysicsClient>,
     colliders: Query<(ColliderComponents, Option<&GlobalTransform>), Without<RapierColliderHandle>>,
+    mut request_queue: ResMut<RequestQueue>,
 ) {
     let mut created_colliders = vec![];
 
@@ -109,8 +112,12 @@ pub fn init_colliders(
         return;
     }
 
-    let resp = send_request(socket, Request::CreateColliders(created_colliders));
+    request_queue
+        .0
+        .push(Request::CreateColliders(created_colliders));
+}
 
+fn handle_init_colliders_response(resp: Result<Response>, commands: &mut Commands) {
     if let Ok(Response::ColliderHandles(handles)) = resp {
         for handle in handles {
             commands
@@ -120,17 +127,16 @@ pub fn init_colliders(
     }
 }
 
-pub fn writeback(
-    context: Res<RapierContext>,
-    config: Res<RapierConfiguration>,
-    (time, sim_to_render_time): (Res<Time>, Res<SimulationToRenderTime>),
-    socket: ResMut<PhysicsSocket>,
-    mut rigid_bodies: Query<(RigidBodyWritebackComponents, &RapierRigidBodyHandle)>,
+pub fn simulate_step(time: Res<Time>, mut request_queue: ResMut<RequestQueue>) {
+    request_queue
+        .0
+        .push(Request::SimulateStep(time.delta_seconds()));
+}
+
+fn handle_simulate_step_response(
+    resp: Result<Response>,
+    rigid_bodies: &mut Query<(RigidBodyWritebackComponents, &RapierRigidBodyHandle)>,
 ) {
-    let req = Request::SimulateStep(time.delta_seconds());
-
-    let resp = send_request(socket, req);
-
     if let Ok(Response::SimulationResult(result)) = resp {
         for ((entity, parent, transform, mut interpolation, mut velocity, mut sleeping), handle) in
             rigid_bodies.iter_mut()
@@ -154,24 +160,42 @@ pub fn writeback(
     }
 }
 
-fn send_request(
-    mut socket: ResMut<PhysicsSocket>,
-    request: Request,
-) -> Result<Response, Box<dyn std::error::Error>> {
-    let msg = Message::Binary(serialize(&request)?);
-    let sent_size = msg.len();
+pub fn process_requests(
+    mut request_queue: ResMut<RequestQueue>,
+    mut client: ResMut<PhysicsClient>,
+    mut commands: Commands,
+    mut rigid_bodies: Query<(RigidBodyWritebackComponents, &RapierRigidBodyHandle)>,
+) {
+    let req = Request::BulkRequest(request_queue.0.drain(..).collect());
 
-    let start = Instant::now();
-    socket.0.write_message(msg.clone())?;
+    let resp = client.send_request(req);
 
-    let msg = socket.0.read_message()?;
+    if let Err(err) = resp {
+        error!("Failed to send request: {}", err);
+        return;
+    }
 
-    println!(
-        "{}: Sent {} and received {} in {:?}",
-        request.name(),
-        human_bytes(sent_size as f64),
-        human_bytes(msg.len() as f64),
-        start.elapsed()
-    );
-    Ok(deserialize::<Response>(&msg.into_data())?)
+    if let Response::BulkResponse(responses) = resp.unwrap() {
+        for resp in responses {
+            match resp {
+                Response::ConfigUpdated => {
+                    handle_update_config_response(Ok(resp));
+                }
+                Response::RigidBodyHandles(_) => {
+                    handle_init_rigid_bodies_response(Ok(resp), &mut commands);
+                }
+                Response::ColliderHandles(_) => {
+                    handle_init_colliders_response(Ok(resp), &mut commands);
+                }
+                Response::SimulationResult(_) => {
+                    handle_simulate_step_response(Ok(resp), &mut rigid_bodies);
+                }
+                _ => {
+                    error!("Unexpected response");
+                }
+            }
+        }
+    } else {
+        error!("Unexpected response");
+    }
 }

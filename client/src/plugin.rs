@@ -1,21 +1,16 @@
-use std::net::TcpStream;
-
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::*;
 
-use tungstenite::{connect, stream::MaybeTlsStream, WebSocket};
+use shared::Request;
 use url::Url;
 
-use crate::systems;
+use crate::{client::PhysicsClient, systems};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, StageLabel)]
 enum PhysicsStage {
     SyncBackend,
     Writeback,
 }
-
-#[derive(Resource)]
-pub struct PhysicsSocket(pub WebSocket<MaybeTlsStream<TcpStream>>);
 
 pub struct RapierPhysicsPlugin {
     addr: String,
@@ -72,8 +67,18 @@ impl Plugin for RapierPhysicsPlugin {
             app.insert_resource(RapierConfiguration::default());
         }
 
+        if app
+            .world
+            .get_resource::<RapierPhysicsPluginConfiguration>()
+            .is_none()
+        {
+            app.insert_resource(RapierPhysicsPluginConfiguration::default());
+        }
+
         app.insert_resource(SimulationToRenderTime::default())
             .insert_resource(RapierContext::default());
+
+        app.insert_resource(RequestQueue::default());
 
         // Custom initialization
 
@@ -84,26 +89,43 @@ impl Plugin for RapierPhysicsPlugin {
                 SystemSet::new()
                     .with_system(systems::update_config)
                     .with_system(systems::init_rigid_bodies.after(systems::update_config))
-                    .with_system(systems::init_colliders.after(systems::init_rigid_bodies)),
+                    .with_system(systems::init_colliders.after(systems::init_rigid_bodies))
+                    .with_system(systems::simulate_step.after(systems::init_colliders)),
             ),
         );
 
         app.add_stage_after(
             PhysicsStage::SyncBackend,
             PhysicsStage::Writeback,
-            SystemStage::parallel().with_system(systems::writeback), //with_run_criteria(FixedTimestep::steps_per_second(1.0))
+            SystemStage::parallel().with_system(systems::process_requests), //with_run_criteria(FixedTimestep::steps_per_second(1.0))
         );
 
         let url = Url::parse(format!("ws://{}:{}/socket", self.addr, self.port).as_str()).unwrap();
-        println!("Connecting to {}", url);
-        let (socket, response) = connect(url).expect("Can't connect to physics server");
+        app.insert_resource(PhysicsClient::new(url));
+    }
+}
 
-        println!("Connected to the server");
-        println!("Response HTTP code: {}", response.status());
-        println!("Response contains the following headers:");
-        for (ref header, _value) in response.headers() {
-            println!("* {}", header);
+#[derive(Resource)]
+pub struct RapierPhysicsPluginConfiguration {
+    pub bulk_requests: bool,
+    pub compression: bool,
+}
+
+impl Default for RapierPhysicsPluginConfiguration {
+    fn default() -> Self {
+        Self {
+            bulk_requests: true,
+            compression: true,
         }
-        app.insert_resource(PhysicsSocket(socket));
+    }
+}
+
+#[derive(Resource)]
+
+pub struct RequestQueue(pub Vec<Request>);
+
+impl Default for RequestQueue {
+    fn default() -> Self {
+        Self(vec![])
     }
 }

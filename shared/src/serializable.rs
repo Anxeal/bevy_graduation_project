@@ -2,7 +2,7 @@ use bevy_rapier3d::prelude::*;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializableMassProperties {
     pub local_center_of_mass: Vect,
     pub mass: f32,
@@ -32,7 +32,7 @@ impl From<SerializableMassProperties> for MassProperties {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SerializableColliderMassProperties {
     Density(f32),
     Mass(f32),
@@ -63,7 +63,7 @@ impl From<SerializableColliderMassProperties> for ColliderMassProperties {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SerializableAdditionalMassProperties {
     Mass(f32),
     MassProperties(SerializableMassProperties),
@@ -91,7 +91,7 @@ impl From<SerializableAdditionalMassProperties> for AdditionalMassProperties {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializableSensor;
 
 impl From<Sensor> for SerializableSensor {
@@ -106,7 +106,7 @@ impl From<SerializableSensor> for Sensor {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializableFriction {
     pub coefficient: f32,
     pub combine_rule: CoefficientCombineRule,
@@ -130,7 +130,7 @@ impl From<SerializableFriction> for Friction {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializableRestitution {
     pub coefficient: f32,
     pub combine_rule: CoefficientCombineRule,
@@ -154,7 +154,7 @@ impl From<SerializableRestitution> for Restitution {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SerializableTimestepMode {
     Fixed {
         dt: f32,
@@ -224,7 +224,7 @@ impl From<SerializableTimestepMode> for TimestepMode {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializableRapierConfiguration {
     pub gravity: Vect,
     pub physics_pipeline_active: bool,
