@@ -164,17 +164,20 @@ pub fn process_requests(
     client: Res<PhysicsClientWrapper>,
     result: Res<RequestResult>,
     rigid_bodies: Query<RigidBodyComponents>,
+    mut frame_count: Local<u64>,
 ) {
+    let client = client.0.clone();
+    let result = result.0.clone();
+    let object_count = rigid_bodies.iter().count();
+    *frame_count += 1;
+    let frame_count = *frame_count;
+
     #[cfg(feature = "bulk-requests")]
     {
         let req = Request::BulkRequest(request_queue.0.drain(..).collect());
-        let client = client.0.clone();
-        let result = result.0.clone();
-
-        let object_count = rigid_bodies.iter().count();
 
         thread::spawn(move || {
-            let span = tracing::debug_span!("process_requests", object_count);
+            let span = tracing::debug_span!("process_requests", object_count, frame_count);
             let _guard = span.enter();
             let resp = client.lock().unwrap().send_request(req);
             result.lock().unwrap().replace(resp);
@@ -182,14 +185,10 @@ pub fn process_requests(
     }
     #[cfg(not(feature = "bulk-requests"))]
     {
-        let client = client.0.clone();
-        let result = result.0.clone();
         let request_queue = request_queue.0.drain(..).collect::<Vec<_>>();
 
-        let object_count = rigid_bodies.iter().count();
-
         thread::spawn(move || {
-            let span = tracing::debug_span!("process_requests", object_count);
+            let span = tracing::debug_span!("process_requests", object_count, frame_count);
             let _guard = span.enter();
             let mut result = result.lock().unwrap();
             for req in request_queue {

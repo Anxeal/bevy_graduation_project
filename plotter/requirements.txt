@@ -1,0 +1,5 @@
+argparse
+plotly
+kaleido
+numpy
+pandas

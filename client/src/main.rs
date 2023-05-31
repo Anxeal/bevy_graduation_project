@@ -1,4 +1,5 @@
 use bevy::{
+    app::AppExit,
     core_pipeline::bloom::BloomSettings,
     log::LogPlugin,
     pbr::{NotShadowCaster, NotShadowReceiver},
@@ -6,6 +7,7 @@ use bevy::{
 };
 use bevy_rapier3d::prelude::*;
 use clap::{arg, command, value_parser};
+use rand::Rng;
 
 use color_space::{Lch, ToRgb};
 
@@ -34,6 +36,12 @@ struct BallsSpawned(i32);
 #[derive(Resource)]
 struct SpawnHeight(f32);
 
+#[derive(Resource)]
+struct SpawnTimerDuration(i32);
+
+#[derive(Resource)]
+struct BallLimit(i32);
+
 fn main() {
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "client=debug");
@@ -53,6 +61,20 @@ fn main() {
             )
             .required(false)
             .value_parser(value_parser!(u16).range(1..=65535)),
+        )
+        .arg(
+            arg!(
+                -s --spawn <FRAMES> "Spawn balls every given number of frames"
+            )
+            .required(false)
+            .value_parser(value_parser!(i32).range(1..)),
+        )
+        .arg(
+            arg!(
+                -c --close <BALLS> "Close the window after spawning given number of balls"
+            )
+            .required(false)
+            .value_parser(value_parser!(i32).range(1..)),
         )
         .get_matches();
 
@@ -92,6 +114,16 @@ fn main() {
     }
 
     app.add_plugin(rapier_physics);
+
+    if let Some(frames) = matches.get_one::<i32>("spawn") {
+        app.insert_resource(SpawnTimerDuration(*frames))
+        .add_system(add_balls_automatically);
+    }
+
+    if let Some(balls) = matches.get_one::<i32>("close") {
+        app.insert_resource(BallLimit(*balls))
+        .add_system(close_after_n_balls);
+    }
 
     app.add_startup_system(setup_resources.at_start())
         .add_startup_system(setup_graphics)
@@ -196,13 +228,6 @@ fn setup_physics(
         &mut materials,
         Vec3::new(10.0, 2.0, 10.0),
         Vec3::new(4.0, 1.0, 4.0),
-    );
-
-    spawn_ball(
-        &mut commands,
-        ball_data.clone(),
-        Vec3::Y * 4.0,
-        balls_spawned,
     );
 
     commands.spawn(DirectionalLightBundle {
@@ -349,4 +374,36 @@ fn adjust_spawn_height(input: Res<Input<KeyCode>>, mut spawn_height: ResMut<Spaw
         direction -= 1;
     }
     spawn_height.0 = (spawn_height.0 + direction as f32 * 0.25).clamp(1.5, 10.0);
+}
+
+fn random_position() -> Vec3 {
+    let mut rng = rand::thread_rng();
+    let x: f32 = rng.gen_range(-5.0..5.0);
+    let z: f32 = rng.gen_range(-5.0..5.0);
+    Vec3::new(x, 5.0, z)
+}
+
+fn add_balls_automatically(
+    mut commands: Commands,
+    time: Res<Time>,
+    ball_data: Res<BallData>,
+    balls_spawned: ResMut<BallsSpawned>,
+    mut timer: Local<i32>,
+    duration: Res<SpawnTimerDuration>,
+) {
+    *timer -= 1;
+    if *timer <= 0 {
+        spawn_ball(&mut commands, ball_data.clone(), random_position(), balls_spawned);
+        *timer = duration.0;
+    }
+}
+
+fn close_after_n_balls(
+    balls_spawned: Res<BallsSpawned>,
+    ball_limit: Res<BallLimit>,
+    mut exit: EventWriter<AppExit>,
+) {
+    if balls_spawned.0 >= ball_limit.0 {
+        exit.send(AppExit);
+    }
 }

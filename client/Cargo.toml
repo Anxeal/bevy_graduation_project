@@ -24,5 +24,6 @@ chrono.workspace = true
 
 url = "*"
 color_space = "*"
+rand = "*"
 
 shared = { path = "../shared" }
