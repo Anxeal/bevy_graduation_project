@@ -8,11 +8,15 @@ bevy = { workspace = true, features = ["jpeg"] }
 bevy_rapier3d.workspace = true
 
 tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+tracing-log.workspace = true
 bincode.workspace = true
 human_bytes.workspace = true
 clap.workspace = true
 tungstenite.workspace = true
 flate2.workspace = true
+chrono.workspace = true
 
 url = "*"
 color_space = "*"

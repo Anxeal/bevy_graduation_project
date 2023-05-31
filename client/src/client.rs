@@ -43,7 +43,7 @@ impl PhysicsClient {
         let msg = Message::Binary(compressed);
         let msg_len = msg.len();
 
-        debug!("Sending request ({})", human_bytes(msg_len as f64));
+        debug!(msg_len, "Sending request ({})", human_bytes(msg_len as f64));
         trace!("Sending request: {:?}", request);
 
         let start = Instant::now();
@@ -58,11 +58,14 @@ impl PhysicsClient {
         decoder.read_to_end(&mut decompressed)?;
 
         let response = deserialize::<Response>(decompressed.as_slice())?;
+        let elapsed = start.elapsed();
 
         debug!(
+            msg_len,
+            latency_in_nanos = elapsed.as_nanos(),
             "Received response ({}) in {:?}",
             human_bytes(msg_len as f64),
-            start.elapsed()
+            elapsed
         );
         trace!("Received response: {:?}", response);
 

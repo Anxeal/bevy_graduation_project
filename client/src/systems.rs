@@ -165,12 +165,17 @@ pub fn process_requests(
     mut request_queue: ResMut<RequestQueue>,
     client: Res<PhysicsClientWrapper>,
     result: Res<RequestResult>,
+    rigid_bodies: Query<RigidBodyComponents>,
 ) {
     let req = Request::BulkRequest(request_queue.0.drain(..).collect());
     let client = client.0.clone();
     let result = result.0.clone();
 
+    let object_count = rigid_bodies.iter().count();
+
     thread::spawn(move || {
+        let span = tracing::debug_span!("process_requests", object_count);
+        let _guard = span.enter();
         let resp = client.lock().unwrap().send_request(req);
         result.lock().unwrap().replace(resp);
     });

@@ -1,5 +1,6 @@
 use bevy::{
     core_pipeline::bloom::BloomSettings,
+    log::LogPlugin,
     pbr::{NotShadowCaster, NotShadowReceiver},
     prelude::*,
 };
@@ -10,6 +11,7 @@ use color_space::{Lch, ToRgb};
 
 mod client;
 mod error;
+mod log;
 mod plugin;
 mod systems;
 
@@ -56,7 +58,18 @@ fn main() {
 
     let mut app = App::new();
 
-    app.add_plugins(DefaultPlugins);
+    let now = chrono::Local::now();
+    let file_name = format!("log_{}.log", now.format("%Y-%m-%d_%H-%M-%S"));
+
+    app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>())
+        .add_plugin(log::LogPlugin {
+            file_appender_settings: Some(log::FileAppenderSettings {
+                rolling: log::Rolling::Never,
+                path: "".into(),
+                prefix: file_name.into(),
+            }),
+            ..default()
+        });
 
     let mut rapier_physics = plugin::RapierPhysicsPlugin::new();
 
@@ -75,7 +88,8 @@ fn main() {
         .add_startup_system(setup_physics)
         .add_system(rotate)
         .add_system(add_ball_on_click)
-        .add_system(adjust_spawn_height);
+        .add_system(adjust_spawn_height)
+        .add_system(bevy::window::close_on_esc);
 
     app.insert_resource(ClearColor(Color::rgb(0.9, 0.6, 0.3)))
         .insert_resource(RapierConfiguration {
