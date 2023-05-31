@@ -57,9 +57,19 @@ fn main() {
         .get_matches();
 
     let mut app = App::new();
+    let mut prefixes = vec!["client"];
 
-    let now = chrono::Local::now();
-    let file_name = format!("log_{}.log", now.format("%Y-%m-%d_%H-%M-%S"));
+    #[cfg(feature = "bulk-requests")]
+    prefixes.push("bulk");
+
+    #[cfg(feature = "compression")]
+    prefixes.push("comp");
+
+    let file_name = format!(
+        "{}_{}.log",
+        prefixes.join("_"),
+        chrono::Local::now().format("%Y-%m-%d_%H-%M-%S")
+    );
 
     app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>())
         .add_plugin(log::LogPlugin {

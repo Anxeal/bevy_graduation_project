@@ -5,7 +5,7 @@ use std::{
 
 use bevy::{prelude::*, utils::Instant};
 use bincode::{deserialize, serialize};
-use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
+use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression, Decompress};
 use shared::*;
 use tungstenite::{connect, stream::MaybeTlsStream, Message, WebSocket};
 use url::Url;
@@ -36,34 +36,64 @@ impl PhysicsClient {
     pub fn send_request(&mut self, request: Request) -> Result<Response> {
         let serialized = serialize(&request)?;
 
-        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-        encoder.write_all(&serialized)?;
-        let compressed = encoder.finish()?;
+        let msg = {
+            #[cfg(feature = "compression")]
+            {
+                let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+                encoder.write_all(&serialized)?;
+                let compressed = encoder.finish()?;
 
-        let msg = Message::Binary(compressed);
+                Message::Binary(compressed)
+            }
+            #[cfg(not(feature = "compression"))]
+            {
+                Message::Binary(serialized)
+            }
+        };
+
         let msg_len = msg.len();
+        let request_type = request.name();
 
-        debug!(msg_len, "Sending request ({})", human_bytes(msg_len as f64));
+        debug!(
+            msg_len,
+            request_type,
+            "Sending request <{}> ({})",
+            request_type,
+            human_bytes(msg_len as f64)
+        );
         trace!("Sending request: {:?}", request);
 
         let start = Instant::now();
-        self.socket.write_message(msg.clone())?;
+        self.socket.write_message(msg)?;
 
         let msg = self.socket.read_message()?;
         let msg_len = msg.len();
         let msg_data = msg.into_data();
 
-        let mut decoder = ZlibDecoder::new(msg_data.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed)?;
+        let serialized = {
+            #[cfg(feature = "compression")]
+            {
+                let mut decoder = ZlibDecoder::new(msg_data.as_slice());
+                let mut decompressed = Vec::new();
+                decoder.read_to_end(&mut decompressed)?;
 
-        let response = deserialize::<Response>(decompressed.as_slice())?;
+                decompressed
+            }
+            #[cfg(not(feature = "compression"))]
+            {
+                msg_data
+            }
+        };
+        let response = deserialize::<Response>(serialized.as_slice())?;
+        let response_type = response.name();
         let elapsed = start.elapsed();
 
         debug!(
             msg_len,
+            response_type,
             latency_in_nanos = elapsed.as_nanos(),
-            "Received response ({}) in {:?}",
+            "Received response <{}> ({}) in {:?}",
+            response_type,
             human_bytes(msg_len as f64),
             elapsed
         );

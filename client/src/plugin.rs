@@ -43,12 +43,25 @@ pub struct PhysicsClientWrapper(pub Arc<Mutex<PhysicsClient>>);
 
 // Couldn't get futures working with Bevy
 // TODO: Implement this with futures instead of polling
+#[cfg(feature = "bulk-requests")]
 #[derive(Resource)]
 pub struct RequestResult(pub Arc<Mutex<Option<Result<Response>>>>);
 
+#[cfg(feature = "bulk-requests")]
 impl Default for RequestResult {
     fn default() -> Self {
         Self(Arc::new(Mutex::new(None)))
+    }
+}
+
+#[cfg(not(feature = "bulk-requests"))]
+#[derive(Resource)]
+pub struct RequestResult(pub Arc<Mutex<Vec<Result<Response>>>>);
+
+#[cfg(not(feature = "bulk-requests"))]
+impl Default for RequestResult {
+    fn default() -> Self {
+        Self(Arc::new(Mutex::new(Vec::new())))
     }
 }
 
@@ -81,14 +94,6 @@ impl Plugin for RapierPhysicsPlugin {
         // the `RapierConfiguration` if it already exists.
         if app.world.get_resource::<RapierConfiguration>().is_none() {
             app.insert_resource(RapierConfiguration::default());
-        }
-
-        if app
-            .world
-            .get_resource::<RapierPhysicsPluginConfiguration>()
-            .is_none()
-        {
-            app.insert_resource(RapierPhysicsPluginConfiguration::default());
         }
 
         app.insert_resource(SimulationToRenderTime::default())
@@ -125,27 +130,6 @@ impl Plugin for RapierPhysicsPlugin {
     }
 }
 
-#[derive(Resource)]
-pub struct RapierPhysicsPluginConfiguration {
-    pub bulk_requests: bool,
-    pub compression: bool,
-}
-
-impl Default for RapierPhysicsPluginConfiguration {
-    fn default() -> Self {
-        Self {
-            bulk_requests: true,
-            compression: true,
-        }
-    }
-}
-
-#[derive(Resource)]
+#[derive(Resource, Default)]
 
 pub struct RequestQueue(pub Vec<Request>);
-
-impl Default for RequestQueue {
-    fn default() -> Self {
-        Self(vec![])
-    }
-}

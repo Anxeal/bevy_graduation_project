@@ -6,9 +6,7 @@ use bevy_rapier3d::prelude::*;
 use bevy_rapier3d::plugin::systems::RigidBodyWritebackComponents;
 
 use crate::error::Result;
-use crate::plugin::{
-    PhysicsClientWrapper, RapierPhysicsPluginConfiguration, RequestQueue, RequestResult,
-};
+use crate::plugin::{PhysicsClientWrapper, RequestQueue, RequestResult};
 use shared::*;
 
 pub type RigidBodyComponents<'a> = (
@@ -167,18 +165,39 @@ pub fn process_requests(
     result: Res<RequestResult>,
     rigid_bodies: Query<RigidBodyComponents>,
 ) {
-    let req = Request::BulkRequest(request_queue.0.drain(..).collect());
-    let client = client.0.clone();
-    let result = result.0.clone();
+    #[cfg(feature = "bulk-requests")]
+    {
+        let req = Request::BulkRequest(request_queue.0.drain(..).collect());
+        let client = client.0.clone();
+        let result = result.0.clone();
 
-    let object_count = rigid_bodies.iter().count();
+        let object_count = rigid_bodies.iter().count();
 
-    thread::spawn(move || {
-        let span = tracing::debug_span!("process_requests", object_count);
-        let _guard = span.enter();
-        let resp = client.lock().unwrap().send_request(req);
-        result.lock().unwrap().replace(resp);
-    });
+        thread::spawn(move || {
+            let span = tracing::debug_span!("process_requests", object_count);
+            let _guard = span.enter();
+            let resp = client.lock().unwrap().send_request(req);
+            result.lock().unwrap().replace(resp);
+        });
+    }
+    #[cfg(not(feature = "bulk-requests"))]
+    {
+        let client = client.0.clone();
+        let result = result.0.clone();
+        let request_queue = request_queue.0.drain(..).collect::<Vec<_>>();
+
+        let object_count = rigid_bodies.iter().count();
+
+        thread::spawn(move || {
+            let span = tracing::debug_span!("process_requests", object_count);
+            let _guard = span.enter();
+            let mut result = result.lock().unwrap();
+            for req in request_queue {
+                let resp = client.lock().unwrap().send_request(req);
+                result.push(resp);
+            }
+        });
+    }
 }
 
 pub fn writeback(
@@ -192,34 +211,60 @@ pub fn writeback(
         return;
     }
 
-    while result.0.lock().unwrap().is_none() {}
-    let resp = result.0.lock().unwrap().take().unwrap();
-    if let Err(err) = resp {
-        error!("Failed to send request: {}", err);
-        return;
-    }
+    #[cfg(feature = "bulk-requests")]
+    {
+        while result.0.lock().unwrap().is_none() {}
+        let resp = result.0.lock().unwrap().take().unwrap();
+        if let Err(err) = resp {
+            error!("Failed to send request: {}", err);
+            return;
+        }
 
-    if let Response::BulkResponse(responses) = resp.unwrap() {
-        for resp in responses {
+        if let Response::BulkResponse(responses) = resp.unwrap() {
+            for resp in responses {
+                handle_response(resp, &mut commands, &mut rigid_bodies);
+            }
+        } else {
+            error!("Unexpected response");
+        }
+    }
+    #[cfg(not(feature = "bulk-requests"))]
+    {
+        while result.0.lock().unwrap().is_empty() {}
+        while let Some(resp) = result.0.lock().unwrap().pop() {
             match resp {
-                Response::ConfigUpdated => {
-                    handle_update_config_response(Ok(resp));
+                Ok(resp) => {
+                    handle_response(resp, &mut commands, &mut rigid_bodies);
                 }
-                Response::RigidBodyHandles(_) => {
-                    handle_init_rigid_bodies_response(Ok(resp), &mut commands);
-                }
-                Response::ColliderHandles(_) => {
-                    handle_init_colliders_response(Ok(resp), &mut commands);
-                }
-                Response::SimulationResult(_) => {
-                    handle_simulate_step_response(Ok(resp), &mut rigid_bodies);
-                }
-                _ => {
-                    error!("Unexpected response");
+                Err(err) => {
+                    error!("Failed to send request: {}", err);
+                    continue;
                 }
             }
         }
-    } else {
-        error!("Unexpected response");
+    }
+}
+
+fn handle_response(
+    resp: Response,
+    mut commands: &mut Commands,
+    mut rigid_bodies: &mut Query<(RigidBodyWritebackComponents, &RapierRigidBodyHandle)>,
+) {
+    match resp {
+        Response::ConfigUpdated => {
+            handle_update_config_response(Ok(resp));
+        }
+        Response::RigidBodyHandles(_) => {
+            handle_init_rigid_bodies_response(Ok(resp), &mut commands);
+        }
+        Response::ColliderHandles(_) => {
+            handle_init_colliders_response(Ok(resp), &mut commands);
+        }
+        Response::SimulationResult(_) => {
+            handle_simulate_step_response(Ok(resp), &mut rigid_bodies);
+        }
+        _ => {
+            error!("Unexpected response");
+        }
     }
 }

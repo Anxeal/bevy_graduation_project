@@ -117,11 +117,20 @@ fn handle_connection(
         if msg.is_binary() {
             let msg_data = msg.into_data();
 
-            let mut decoder = ZlibDecoder::new(msg_data.as_slice());
-            let mut decompressed = Vec::new();
-            decoder.read_to_end(&mut decompressed)?;
+            let req = {
+                #[cfg(feature = "compression")]
+                {
+                    let mut decoder = ZlibDecoder::new(msg_data.as_slice());
+                    let mut decompressed = Vec::new();
+                    decoder.read_to_end(&mut decompressed)?;
 
-            let req: Request = deserialize(&decompressed)?;
+                    deserialize(&decompressed)?
+                }
+                #[cfg(not(feature = "compression"))]
+                {
+                    deserialize(&msg_data)?
+                }
+            };
 
             let response = handle_request(
                 req,
@@ -135,12 +144,20 @@ fn handle_connection(
             simulate_latency(simulated_latency);
 
             let serialized = serialize(&response)?;
-
-            let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-            encoder.write_all(&serialized)?;
-            let compressed = encoder.finish()?;
-
-            websocket.write_message(Message::binary(compressed))?;
+            let msg = {
+                #[cfg(feature = "compression")]
+                {
+                    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+                    encoder.write_all(&serialized)?;
+                    let compressed = encoder.finish()?;
+                    Message::binary(compressed)
+                }
+                #[cfg(not(feature = "compression"))]
+                {
+                    Message::binary(serialized)
+                }
+            };
+            websocket.write_message(msg)?;
         } else if msg.is_close() {
             println!("Closing connection with {}", peer_addr);
             return Ok(());

@@ -3,6 +3,9 @@ name = "server"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+compression = []
+
 [dependencies]
 bevy.workspace = true
 bevy_rapier3d.workspace = true
